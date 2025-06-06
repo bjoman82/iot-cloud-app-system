@@ -1,0 +1,22 @@
+# Verktyg
+brew "git"
+brew "gh"
+brew "wget"
+brew "tree"
+brew "jq"
+
+# Python & MQTT
+brew "python"
+brew "mosquitto"
+
+# HTTP och Cloud
+brew "httpie"
+brew "docker"
+
+# ESP32 och IDE
+cask "platformio"
+cask "visual-studio-code"
+
+# DevOps / certifikat / node
+brew "mkcert"
+brew "nvm"
