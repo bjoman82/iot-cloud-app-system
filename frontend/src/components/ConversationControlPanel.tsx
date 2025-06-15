@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Role {
   name: string;
@@ -6,62 +6,67 @@ interface Role {
   model: string;
   temperature: number;
   max_tokens: number;
+  system_prompt?: string;
 }
 
 interface ConversationControlPanelProps {
-  roles: Role[];
   onStartConversation: (settings: ConversationSettings) => void;
-  onTestRole: (role: string, question: string) => void;
 }
 
 interface ConversationSettings {
   topic: string;
-  maxTurns: number;
-  maxTokens: number;
-  activeRoles: string[];
+  max_turns: number;
+  max_tokens: number;
+  active_roles: string[];
 }
 
-export const ConversationControlPanel: React.FC<ConversationControlPanelProps> = ({
-  roles,
-  onStartConversation,
-  onTestRole,
-}) => {
+export const ConversationControlPanel: React.FC<ConversationControlPanelProps> = ({ onStartConversation }) => {
+  const [roles, setRoles] = useState<Role[]>([]);
   const [topic, setTopic] = useState('');
-  const [maxTurns, setMaxTurns] = useState(2);
-  const [maxTokens, setMaxTokens] = useState(300);
-  const [activeRoles, setActiveRoles] = useState<string[]>(roles.map(role => role.name));
-  const [testRole, setTestRole] = useState(roles[0]?.name || '');
-  const [testQuestion, setTestQuestion] = useState('');
+  const [maxTurns, setMaxTurns] = useState(3);
+  const [maxTokens, setMaxTokens] = useState(500);
+  const [activeRoles, setActiveRoles] = useState<string[]>([]);
 
-  const handleStartConversation = () => {
-    if (!topic.trim()) {
-      alert('Please enter a topic for the conversation');
-      return;
+  useEffect(() => {
+    // Fetch available roles when component mounts
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/roles');
+      if (!response.ok) throw new Error('Failed to fetch roles');
+      const data = await response.json();
+      setRoles(data.roles);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      alert('Failed to fetch roles');
     }
-
-    onStartConversation({
-      topic,
-      maxTurns,
-      maxTokens,
-      activeRoles,
-    });
-  };
-
-  const handleTestRole = () => {
-    if (!testQuestion.trim()) {
-      alert('Please enter a question for the role');
-      return;
-    }
-
-    onTestRole(testRole, testQuestion);
   };
 
   const handleRoleToggle = (roleName: string) => {
-    setActiveRoles(prev =>
+    setActiveRoles(prev => 
       prev.includes(roleName)
-        ? prev.filter(r => r !== roleName)
+        ? prev.filter(name => name !== roleName)
         : [...prev, roleName]
     );
+  };
+
+  const handleStartConversation = () => {
+    if (!topic.trim()) {
+      alert('Please enter a topic');
+      return;
+    }
+    if (activeRoles.length === 0) {
+      alert('Please select at least one role');
+      return;
+    }
+    onStartConversation({
+      topic,
+      max_turns: maxTurns,
+      max_tokens: maxTokens,
+      active_roles: activeRoles,
+    });
   };
 
   return (
@@ -70,18 +75,20 @@ export const ConversationControlPanel: React.FC<ConversationControlPanelProps> =
       border: '1px solid #ccc',
       borderRadius: '0.5rem',
       backgroundColor: 'white',
+      marginBottom: '1rem',
     }}>
+      <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>
+        Conversation Controls
+      </h2>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Conversation Controls</h2>
-        
-        {/* Topic Input */}
         <div>
           <label style={{ display: 'block', marginBottom: '0.5rem' }}>Topic</label>
           <input
             type="text"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
-            placeholder="Enter conversation topic"
+            placeholder="Enter conversation topic..."
             style={{
               width: '100%',
               padding: '0.5rem',
@@ -91,15 +98,14 @@ export const ConversationControlPanel: React.FC<ConversationControlPanelProps> =
           />
         </div>
 
-        {/* Max Turns Control */}
         <div>
           <label style={{ display: 'block', marginBottom: '0.5rem' }}>Max Turns</label>
           <input
             type="number"
+            min="1"
+            max="10"
             value={maxTurns}
-            onChange={(e) => setMaxTurns(Number(e.target.value))}
-            min={1}
-            max={5}
+            onChange={(e) => setMaxTurns(parseInt(e.target.value))}
             style={{
               width: '100%',
               padding: '0.5rem',
@@ -109,16 +115,15 @@ export const ConversationControlPanel: React.FC<ConversationControlPanelProps> =
           />
         </div>
 
-        {/* Max Tokens Control */}
         <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Max Tokens per Response</label>
+          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Max Tokens</label>
           <input
             type="number"
+            min="100"
+            max="1000"
+            step="100"
             value={maxTokens}
-            onChange={(e) => setMaxTokens(Number(e.target.value))}
-            min={100}
-            max={1000}
-            step={100}
+            onChange={(e) => setMaxTokens(parseInt(e.target.value))}
             style={{
               width: '100%',
               padding: '0.5rem',
@@ -128,28 +133,27 @@ export const ConversationControlPanel: React.FC<ConversationControlPanelProps> =
           />
         </div>
 
-        {/* Active Roles Selection */}
         <div>
           <label style={{ display: 'block', marginBottom: '0.5rem' }}>Active Roles</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {roles.map((role) => (
-              <div key={role.name} style={{ display: 'flex', alignItems: 'center' }}>
+              <label key={role.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input
                   type="checkbox"
                   checked={activeRoles.includes(role.name)}
                   onChange={() => handleRoleToggle(role.name)}
-                  style={{ marginRight: '0.5rem' }}
                 />
-                <span>{role.name}</span>
-              </div>
+                <div>
+                  <div style={{ fontWeight: 'bold' }}>{role.name}</div>
+                  <div style={{ fontSize: '0.875rem', color: '#666' }}>{role.description}</div>
+                </div>
+              </label>
             ))}
           </div>
         </div>
 
-        {/* Start Conversation Button */}
         <button
           onClick={handleStartConversation}
-          disabled={!topic.trim() || activeRoles.length === 0}
           style={{
             padding: '0.5rem 1rem',
             backgroundColor: '#3182ce',
@@ -157,68 +161,11 @@ export const ConversationControlPanel: React.FC<ConversationControlPanelProps> =
             border: 'none',
             borderRadius: '0.25rem',
             cursor: 'pointer',
-            opacity: (!topic.trim() || activeRoles.length === 0) ? 0.5 : 1,
+            marginTop: '1rem',
           }}
         >
           Start Conversation
         </button>
-
-        {/* Test Role Section */}
-        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ccc' }}>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1rem' }}>Test Individual Role</h3>
-          
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Select Role</label>
-            <select
-              value={testRole}
-              onChange={(e) => setTestRole(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #ccc',
-                borderRadius: '0.25rem',
-              }}
-            >
-              {roles.map((role) => (
-                <option key={role.name} value={role.name}>
-                  {role.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Question</label>
-            <textarea
-              value={testQuestion}
-              onChange={(e) => setTestQuestion(e.target.value)}
-              placeholder="Enter your question for the selected role"
-              rows={3}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #ccc',
-                borderRadius: '0.25rem',
-              }}
-            />
-          </div>
-
-          <button
-            onClick={handleTestRole}
-            disabled={!testQuestion.trim()}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#38a169',
-              color: 'white',
-              border: 'none',
-              borderRadius: '0.25rem',
-              cursor: 'pointer',
-              opacity: !testQuestion.trim() ? 0.5 : 1,
-            }}
-          >
-            Test Role
-          </button>
-        </div>
       </div>
     </div>
   );

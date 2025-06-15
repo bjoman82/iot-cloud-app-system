@@ -1,67 +1,34 @@
 import React, { useState } from 'react';
 import { ConversationControlPanel } from './components/ConversationControlPanel';
 import { ConversationDisplay } from './components/ConversationDisplay';
+import { RoleDebugPanel } from './components/RoleDebugPanel';
 
 interface Message {
   role: string;
   content: string;
 }
 
-interface Role {
-  name: string;
-  description: string;
-  model: string;
-  temperature: number;
+interface ConversationSettings {
+  topic: string;
+  max_turns: number;
   max_tokens: number;
+  active_roles: string[];
 }
 
-const roles: Role[] = [
-  {
-    name: 'Business Analyst',
-    description: 'Analyzes business implications and ROI',
-    model: 'gemini-pro',
-    temperature: 0.7,
-    max_tokens: 500,
-  },
-  {
-    name: 'Customer Advocate',
-    description: 'Focuses on user experience and customer needs',
-    model: 'gemini-pro',
-    temperature: 0.7,
-    max_tokens: 500,
-  },
-  {
-    name: 'Technical Architect',
-    description: 'Provides technical insights and implementation details',
-    model: 'gemini-pro',
-    temperature: 0.7,
-    max_tokens: 500,
-  },
-];
-
 function App() {
+  const [activeView, setActiveView] = useState<'conversation' | 'debug'>('conversation');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleStartConversation = async (settings: {
-    topic: string;
-    maxTurns: number;
-    maxTokens: number;
-    activeRoles: string[];
-  }) => {
+  const handleStartConversation = async (settings: ConversationSettings) => {
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/conversation', {
+      const response = await fetch('http://localhost:5000/api/ai/conversation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          topic: settings.topic,
-          max_turns: settings.maxTurns,
-          max_tokens: settings.maxTokens,
-          roles: settings.activeRoles,
-        }),
+        body: JSON.stringify(settings),
       });
 
       if (!response.ok) {
@@ -69,81 +36,60 @@ function App() {
       }
 
       const data = await response.json();
-      setMessages(data.messages);
+      setMessages(data.conversation);
     } catch (error) {
       console.error('Error starting conversation:', error);
-      alert('Failed to start conversation. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleTestRole = async (role: string, question: string) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://localhost:5000/api/test-role', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          role,
-          question,
-          max_tokens: 500,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to test role');
-      }
-
-      const data = await response.json();
-      setMessages([
-        { role: 'user', content: question },
-        { role: 'model', content: data.message.content },
-      ]);
-    } catch (error) {
-      console.error('Error testing role:', error);
-      alert('Failed to test role. Please try again.');
+      alert('Failed to start conversation');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div style={{
-      maxWidth: '1200px',
-      margin: '0 auto',
-      padding: '2rem',
-      fontFamily: 'Arial, sans-serif',
-    }}>
-      <h1 style={{
-        fontSize: '2rem',
-        fontWeight: 'bold',
-        marginBottom: '2rem',
-        textAlign: 'center',
-      }}>
-        AI Conversation System
-      </h1>
+    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '1rem' }}>
+          AI Role-Based Conversation System
+        </h1>
+        
+        {/* Navigation */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+          <button
+            onClick={() => setActiveView('conversation')}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: activeView === 'conversation' ? '#3182ce' : '#e2e8f0',
+              color: activeView === 'conversation' ? 'white' : 'black',
+              border: 'none',
+              borderRadius: '0.25rem',
+              cursor: 'pointer',
+            }}
+          >
+            Conversation
+          </button>
+          <button
+            onClick={() => setActiveView('debug')}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: activeView === 'debug' ? '#3182ce' : '#e2e8f0',
+              color: activeView === 'debug' ? 'white' : 'black',
+              border: 'none',
+              borderRadius: '0.25rem',
+              cursor: 'pointer',
+            }}
+          >
+            Role Configuration
+          </button>
+        </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '2rem',
-      }}>
-        <div>
-          <ConversationControlPanel
-            roles={roles}
-            onStartConversation={handleStartConversation}
-            onTestRole={handleTestRole}
-          />
-        </div>
-        <div>
-          <ConversationDisplay
-            messages={messages}
-            isLoading={isLoading}
-          />
-        </div>
+        {activeView === 'conversation' ? (
+          <>
+            <ConversationControlPanel onStartConversation={handleStartConversation} />
+            <ConversationDisplay messages={messages} isLoading={isLoading} />
+          </>
+        ) : (
+          <RoleDebugPanel onRolesUpdated={() => {}} />
+        )}
       </div>
     </div>
   );

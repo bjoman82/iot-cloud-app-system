@@ -1,9 +1,13 @@
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import os
 
 class AIServiceConfig(BaseModel):
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    model: str = "models/gemini-2.0-flash-lite"
+    temperature: float = 0.7
+    max_tokens: int = 500
+    system_prompt: Optional[str] = None
     
     # Define available AI roles and their configurations
     AI_ROLES: Dict[str, Dict[str, Any]] = {
