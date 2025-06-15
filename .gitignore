@@ -1,0 +1,10 @@
+*.log
+*.DS_Store
+__pycache__/
+.env
+*.pyc
+venv/
+.gradle/
+*.apk
+.idea/
+build/
