@@ -1,19 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface Message {
   role: string;
   content: string;
 }
 
+interface Role {
+  name: string;
+  description: string;
+}
+
 interface ConversationDisplayProps {
   messages: Message[];
   isLoading: boolean;
+  roles: Role[];
+  onUserInput: (input: string, nextSpeaker?: string) => void;
 }
 
 export const ConversationDisplay: React.FC<ConversationDisplayProps> = ({
   messages,
   isLoading,
+  roles,
+  onUserInput,
 }) => {
+  const [userInput, setUserInput] = useState('');
+  const [selectedRole, setSelectedRole] = useState<string>('');
+
   const getMessageStyle = (role: string) => ({
     padding: '1rem',
     marginBottom: '1rem',
@@ -23,6 +35,15 @@ export const ConversationDisplay: React.FC<ConversationDisplayProps> = ({
     color: role === 'user' ? '#1a202c' : 'white',
     alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
   });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (userInput.trim()) {
+      onUserInput(userInput, selectedRole);
+      setUserInput('');
+      setSelectedRole('');
+    }
+  };
 
   return (
     <div style={{
@@ -44,6 +65,7 @@ export const ConversationDisplay: React.FC<ConversationDisplayProps> = ({
         display: 'flex',
         flexDirection: 'column',
         gap: '1rem',
+        marginBottom: '1rem',
       }}>
         {messages.map((message, index) => (
           <div
@@ -75,6 +97,67 @@ export const ConversationDisplay: React.FC<ConversationDisplayProps> = ({
           </div>
         )}
       </div>
+
+      <form 
+        onSubmit={handleSubmit}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem',
+          padding: '1rem',
+          borderTop: '1px solid #ccc',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <select
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            style={{
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '0.25rem',
+              flex: '0 0 200px',
+            }}
+          >
+            <option value="">Select a role to respond (optional)</option>
+            {roles.map((role) => (
+              <option key={role.name} value={role.name}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Type your message..."
+            style={{
+              flex: 1,
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '0.25rem',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={isLoading || !userInput.trim()}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#3182ce',
+              color: 'white',
+              border: 'none',
+              borderRadius: '0.25rem',
+              cursor: 'pointer',
+              opacity: isLoading || !userInput.trim() ? 0.5 : 1,
+            }}
+          >
+            Send
+          </button>
+        </div>
+      </form>
 
       <style>
         {`

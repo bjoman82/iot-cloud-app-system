@@ -60,6 +60,9 @@ class ConversationRequest(BaseModel):
     max_turns: int
     max_tokens: int
     active_roles: List[str]
+    conversation_history: Optional[List[Dict[str, str]]] = None
+    next_speaker: Optional[str] = None
+    user_input: Optional[str] = None
 
 class TestRoleRequest(BaseModel):
     role_name: str
@@ -164,13 +167,45 @@ async def start_conversation(request: ConversationRequest):
         if not active_roles:
             raise HTTPException(status_code=400, detail="No active roles specified")
         
-        conversation = await gemini_service.generate_conversation(
+        # If we have a next speaker specified, only that role should respond
+        if request.next_speaker:
+            # Find the role by name or key
+            next_speaker_found = False
+            for key, role in active_roles.items():
+                if role["name"] == request.next_speaker or key == request.next_speaker:
+                    next_speaker_found = True
+                    break
+            
+            if not next_speaker_found:
+                raise HTTPException(status_code=404, detail=f"Next speaker {request.next_speaker} not found in active roles")
+            
+            # Get response from the specified role
+            response = await gemini_service.get_role_response(
+                role=request.next_speaker,
+                topic=request.topic,
+                context=request.conversation_history or [],
+                max_tokens=request.max_tokens
+            )
+            return {"conversation": [response]}
+        
+        # If we have user input, add it to the conversation
+        if request.user_input:
+            conversation = request.conversation_history or []
+            conversation.append({"role": "user", "content": request.user_input})
+            print(f"request.user_input: {request.user_input}")
+            request.topic = request.user_input
+        else:
+            conversation = []
+        
+        # Generate full conversation
+        full_conversation = await gemini_service.generate_conversation(
             topic=request.topic,
+            roles=active_roles,
             max_turns=request.max_turns,
             max_tokens=request.max_tokens,
-            roles=active_roles
+            conversation_history=conversation
         )
-        return {"conversation": conversation}
+        return {"conversation": full_conversation}
     except Exception as e:
         print(f"Error in conversation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate conversation: {str(e)}")

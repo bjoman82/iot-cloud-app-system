@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ConversationControlPanel } from './components/ConversationControlPanel';
 import { ConversationDisplay } from './components/ConversationDisplay';
 import { RoleDebugPanel } from './components/RoleDebugPanel';
@@ -6,6 +6,15 @@ import { RoleDebugPanel } from './components/RoleDebugPanel';
 interface Message {
   role: string;
   content: string;
+}
+
+interface Role {
+  name: string;
+  description: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  system_prompt?: string;
 }
 
 interface ConversationSettings {
@@ -19,9 +28,31 @@ function App() {
   const [activeView, setActiveView] = useState<'conversation' | 'debug'>('conversation');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [currentTopic, setCurrentTopic] = useState<string>('');
+  const [currentSettings, setCurrentSettings] = useState<ConversationSettings | null>(null);
+
+  useEffect(() => {
+    // Fetch available roles when component mounts
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/roles');
+      if (!response.ok) throw new Error('Failed to fetch roles');
+      const data = await response.json();
+      setRoles(data.roles);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      alert('Failed to fetch roles');
+    }
+  };
 
   const handleStartConversation = async (settings: ConversationSettings) => {
     setIsLoading(true);
+    setCurrentTopic(settings.topic);
+    setCurrentSettings(settings);
     try {
       const response = await fetch('http://localhost:5000/api/ai/conversation', {
         method: 'POST',
@@ -40,6 +71,51 @@ function App() {
     } catch (error) {
       console.error('Error starting conversation:', error);
       alert('Failed to start conversation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUserInput = async (input: string, nextSpeaker?: string) => {
+    if (!currentTopic || !currentSettings) {
+      alert('Please start a conversation first');
+      return;
+    }
+
+    console.log('Sending user input:', { input, nextSpeaker, currentTopic, currentSettings });
+    setIsLoading(true);
+    try {
+      const requestBody = {
+        topic: currentTopic,
+        max_turns: 1,
+        max_tokens: currentSettings.max_tokens,
+        active_roles: currentSettings.active_roles,
+        conversation_history: messages,
+        user_input: input,
+        next_speaker: nextSpeaker,
+      };
+      console.log('Request body:', requestBody);
+
+      const response = await fetch('http://localhost:5000/api/ai/conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error response:', errorData);
+        throw new Error(errorData.detail || 'Failed to process user input');
+      }
+
+      const data = await response.json();
+      console.log('Response data:', data);
+      setMessages(prev => [...prev, ...data.conversation]);
+    } catch (error) {
+      console.error('Error processing user input:', error);
+      alert('Failed to process user input');
     } finally {
       setIsLoading(false);
     }
@@ -85,10 +161,15 @@ function App() {
         {activeView === 'conversation' ? (
           <>
             <ConversationControlPanel onStartConversation={handleStartConversation} />
-            <ConversationDisplay messages={messages} isLoading={isLoading} />
+            <ConversationDisplay 
+              messages={messages} 
+              isLoading={isLoading} 
+              roles={roles}
+              onUserInput={handleUserInput}
+            />
           </>
         ) : (
-          <RoleDebugPanel onRolesUpdated={() => {}} />
+          <RoleDebugPanel onRolesUpdated={fetchRoles} />
         )}
       </div>
     </div>

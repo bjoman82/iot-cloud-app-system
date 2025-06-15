@@ -2,8 +2,35 @@ import google.generativeai as genai
 from typing import Dict, Any, List, Optional
 import asyncio
 import time
+import os
+import json
+import logging
+from datetime import datetime
 from .base import BaseAIService
 from .config import AIServiceConfig, DEFAULT_CONVERSATION_SETTINGS
+
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('gemini_service.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('GeminiService')
+
+def load_roles() -> Dict:
+    """Load roles from configuration file."""
+    try:
+        config_file = os.path.join(os.path.dirname(__file__), "..", "config", "roles.json")
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                return json.load(f)
+        return {"roles": {}}
+    except Exception as e:
+        logger.error(f"Error loading roles: {e}")
+        return {"roles": {}}
 
 class GeminiService(BaseAIService):
     def __init__(self, config: Dict[str, Any]):
@@ -28,13 +55,17 @@ class GeminiService(BaseAIService):
         self.min_request_interval = 2  # Minimum seconds between requests
         self.max_retries = 3
         self.retry_delay = 60  # Default retry delay in seconds
+        
+        logger.info(f"GeminiService initialized with model: {self.model}")
 
     async def _wait_for_rate_limit(self):
         """Wait if necessary to respect rate limits."""
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
         if time_since_last_request < self.min_request_interval:
-            await asyncio.sleep(self.min_request_interval - time_since_last_request)
+            wait_time = self.min_request_interval - time_since_last_request
+            logger.debug(f"Rate limiting: waiting {wait_time:.2f} seconds")
+            await asyncio.sleep(wait_time)
         self.last_request_time = time.time()
 
     async def generate_response(self, 
@@ -42,6 +73,11 @@ class GeminiService(BaseAIService):
                               context: List[Dict[str, str]] = None,
                               max_tokens: Optional[int] = None) -> str:
         """Generate a response using Google's Gemini model with rate limiting."""
+        logger.info(f"Generating response with max_tokens: {max_tokens}")
+        logger.debug(f"Prompt: {prompt}")
+        if context:
+            logger.debug(f"Context: {json.dumps(context, indent=2)}")
+
         for attempt in range(self.max_retries):
             try:
                 await self._wait_for_rate_limit()
@@ -71,6 +107,9 @@ class GeminiService(BaseAIService):
                     "4. Maintain clarity while being brief"
                 )
 
+                logger.debug(f"Enhanced prompt: {enhanced_prompt}")
+                logger.debug(f"History: {json.dumps(history, indent=2)}")
+
                 # Generate the response
                 response = await self.model.generate_content_async(
                     contents=history + [{"role": "user", "parts": [enhanced_prompt]}],
@@ -80,60 +119,110 @@ class GeminiService(BaseAIService):
                     }
                 )
                 
+                logger.info("Response generated successfully")
+                logger.debug(f"Response: {response.text}")
                 return response.text
             except Exception as e:
                 error_str = str(e)
+                logger.error(f"Error generating response (attempt {attempt + 1}/{self.max_retries}): {error_str}")
                 if "429" in error_str and "quota" in error_str.lower():
                     if attempt < self.max_retries - 1:
-                        print(f"Rate limit hit, waiting {self.retry_delay} seconds before retry...")
+                        logger.warning(f"Rate limit hit, waiting {self.retry_delay} seconds before retry...")
                         await asyncio.sleep(self.retry_delay)
                         continue
                 raise Exception(f"Error generating response: {error_str}")
 
     async def generate_conversation(self, 
                                  topic: str, 
-                                 roles: List[str], 
+                                 roles: Dict[str, Any], 
                                  max_turns: int = None,
                                  max_tokens: int = None,
-                                 user_input: Optional[str] = None) -> List[Dict[str, str]]:
+                                 conversation_history: List[Dict[str, str]] = None) -> List[Dict[str, str]]:
         """Generate a conversation between multiple AI roles with rate limiting."""
+        logger.info(f"Starting conversation about: {topic}")
+        logger.debug(f"Roles: {json.dumps(roles, indent=2)}")
+        logger.debug(f"Max turns: {max_turns}")
+        logger.debug(f"Max tokens: {max_tokens}")
+        if conversation_history:
+            logger.debug(f"Conversation history: {json.dumps(conversation_history, indent=2)}")
+
         # Use provided settings or defaults
         max_turns = max_turns or DEFAULT_CONVERSATION_SETTINGS["max_turns"]
         max_tokens = max_tokens or DEFAULT_CONVERSATION_SETTINGS["max_tokens_per_response"]
         
-        conversation = []
-        current_turn = 0
+        # Initialize conversation with history if provided
+        conversation = conversation_history or []
         
-        # Initialize the conversation with a user message
-        initial_prompt = (
-            f"Let's discuss the following topic: {topic}\n\n"
-            f"Each response should be comprehensive yet concise, staying within {max_tokens} tokens. "
-            "Focus on quality and relevance while maintaining brevity."
-        )
-        conversation.append(self.format_message("user", initial_prompt))
+        # If no history, start with the topic
+        if not conversation:
+            initial_prompt = (
+                f"Let's discuss the following topic: {topic}\n\n"
+                f"Each response should be comprehensive yet concise, staying within {max_tokens} tokens. "
+                "Focus on quality and relevance while maintaining brevity."
+            )
+            conversation.append(self.format_message("user", initial_prompt))
+            logger.info("Added initial topic prompt to conversation")
         
-        # If user provided input, add it to the conversation
-        if user_input:
-            conversation.append(self.format_message("user", user_input))
-        
-        while current_turn < max_turns:
-            for role in roles:
-                # Create a prompt that includes the conversation history
-                context = conversation[-2:] if len(conversation) > 2 else conversation
+        # If we have a user message at the end of the history, we should only get responses from the roles
+        # Otherwise, we'll do a full round of responses
+        if conversation and conversation[-1]["role"] == "user":
+            logger.info("Processing user message with responses from all roles")
+            # Only get one response from each role to the user's message
+            for role_key, role_config in roles.items():
+                logger.info(f"Getting response from role: {role_config['name']}")
+                
+                # Create a prompt that focuses on the user's message
+                user_message = conversation[-1]["content"]
                 prompt = (
-                    f"As the {role}, please provide your perspective on the topic, considering the previous discussion. "
+                    f"As the {role_config['name']}, please respond to this question/statement: {user_message}\n\n"
+                    f"Consider the context of our discussion about {topic} and the conversation history so far. "
                     f"Your response should be comprehensive yet concise, staying within {max_tokens} tokens. "
                     "Focus on quality and relevance while maintaining brevity."
                 )
                 
+                # Include role's system prompt in the context
+                if role_config.get('system_prompt'):
+                    prompt = f"{role_config['system_prompt']}\n\n{prompt}"
+                
+                # Use all conversation history except the last message as context
+                context = conversation[:-1] if len(conversation) > 1 else []
                 response = await self.generate_response(prompt, context, max_tokens)
-                conversation.append(self.format_message("model", f"[{role.upper()}] {response}"))
+                conversation.append(self.format_message("model", f"[{role_config['name']}] {response}"))
+                logger.info(f"Added response from {role_config['name']}")
                 
                 # Add a small delay between responses
                 await asyncio.sleep(1)
-            
-            current_turn += 1
+        else:
+            logger.info("Starting new round of responses")
+            # Do a full round of responses
+            current_turn = 0
+            while current_turn < max_turns:
+                logger.info(f"Starting turn {current_turn + 1}/{max_turns}")
+                for role_key, role_config in roles.items():
+                    logger.info(f"Getting response from role: {role_config['name']}")
+                    # Create a prompt that includes the full conversation history
+                    prompt = (
+                        f"As the {role_config['name']}, please provide your perspective on the topic: {topic}, "
+                        f"considering the entire discussion so far. "
+                        f"Your response should be comprehensive yet concise, staying within {max_tokens} tokens. "
+                        "Focus on quality and relevance while maintaining brevity."
+                    )
+                    
+                    # Include role's system prompt in the context
+                    if role_config.get('system_prompt'):
+                        prompt = f"{role_config['system_prompt']}\n\n{prompt}"
+                    
+                    response = await self.generate_response(prompt, conversation, max_tokens)
+                    conversation.append(self.format_message("model", f"[{role_config['name']}] {response}"))
+                    logger.info(f"Added response from {role_config['name']}")
+                    
+                    # Add a small delay between responses
+                    await asyncio.sleep(1)
+                
+                current_turn += 1
         
+        logger.info("Conversation generation completed")
+        logger.debug(f"Final conversation: {json.dumps(conversation, indent=2)}")
         return conversation
 
     async def get_role_response(self,
@@ -142,6 +231,35 @@ class GeminiService(BaseAIService):
                               context: List[Dict[str, str]],
                               max_tokens: Optional[int] = None) -> Dict[str, str]:
         """Get a response from a specific role."""
-        prompt = f"As the {role}, please provide your perspective on the topic: {topic}, considering the previous discussion."
+        logger.info(f"Getting response from role: {role}")
+        logger.debug(f"Topic: {topic}")
+        logger.debug(f"Context: {json.dumps(context, indent=2)}")
+        logger.debug(f"Max tokens: {max_tokens}")
+
+        # Load roles to get the role configuration
+        roles_data = load_roles()
+        role_config = None
+        
+        # Try to find the role by name or key
+        for key, config in roles_data["roles"].items():
+            if config["name"] == role or key == role:
+                role_config = config
+                break
+        
+        if not role_config:
+            error_msg = f"Role {role} not found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Create a prompt that includes the role's system prompt and context
+        prompt = (
+            f"As the {role_config['name']}, please provide your perspective on the topic: {topic}, "
+            "considering the entire discussion so far."
+        )
+        
+        if role_config.get('system_prompt'):
+            prompt = f"{role_config['system_prompt']}\n\n{prompt}"
+        
         response = await self.generate_response(prompt, context, max_tokens)
-        return self.format_message("model", f"[{role.upper()}] {response}") 
+        logger.info(f"Response generated for role: {role}")
+        return self.format_message("model", f"[{role_config['name']}] {response}") 
