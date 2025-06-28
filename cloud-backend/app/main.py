@@ -69,6 +69,13 @@ class TestRoleRequest(BaseModel):
     question: str
     max_tokens: Optional[int] = None
 
+# Step 2: Add NextTurnRequest model
+class NextTurnRequest(BaseModel):
+    conversation_history: List[Dict[str, str]]
+    next_speaker: str
+    topic: str
+    max_tokens: Optional[int] = None
+
 @app.get("/api/roles")
 async def get_roles():
     """Get all available roles."""
@@ -192,7 +199,6 @@ async def start_conversation(request: ConversationRequest):
         if request.user_input:
             conversation = request.conversation_history or []
             conversation.append({"role": "user", "content": request.user_input})
-            print(f"request.user_input: {request.user_input}")
             request.topic = request.user_input
         else:
             conversation = []
@@ -230,6 +236,36 @@ async def test_role(request: TestRoleRequest):
             max_tokens=request.max_tokens or role['max_tokens']
         )
         return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ai/next-turn")
+async def next_turn(request: NextTurnRequest):
+    """Generate the next turn in a manual, turn-based conversation."""
+    roles_data = load_roles()
+    # Try to find the role by display name or key
+    role_found = None
+    for key, role in roles_data["roles"].items():
+        if role["name"] == request.next_speaker or key == request.next_speaker:
+            role_found = role
+            break
+    if not role_found:
+        raise HTTPException(status_code=404, detail=f"Role '{request.next_speaker}' not found")
+
+    # Build context from conversation history
+    context = ""
+    for msg in request.conversation_history:
+        context += f"{msg['role']}: {msg['content']}\n"
+    if role_found.get('system_prompt'):
+        context += f"\n{role_found['system_prompt']}"
+
+    try:
+        response = await gemini_service.generate_response(
+            prompt=request.topic,
+            context=context,
+            max_tokens=request.max_tokens or role_found['max_tokens']
+        )
+        return {"role": role_found["name"], "content": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

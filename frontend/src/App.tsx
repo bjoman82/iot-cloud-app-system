@@ -87,7 +87,7 @@ function App() {
     try {
       const requestBody = {
         topic: currentTopic,
-        max_turns: 1,
+        max_turns: currentSettings.max_turns,
         max_tokens: currentSettings.max_tokens,
         active_roles: currentSettings.active_roles,
         conversation_history: messages,

@@ -73,10 +73,8 @@ class GeminiService(BaseAIService):
                               context: List[Dict[str, str]] = None,
                               max_tokens: Optional[int] = None) -> str:
         """Generate a response using Google's Gemini model with rate limiting."""
-        logger.info(f"Generating response with max_tokens: {max_tokens}")
-        logger.debug(f"Prompt: {prompt}")
-        if context:
-            logger.debug(f"Context: {json.dumps(context, indent=2)}")
+        # Simplified logging - only show topic and output
+        logger.info(f"Topic: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
 
         for attempt in range(self.max_retries):
             try:
@@ -107,9 +105,6 @@ class GeminiService(BaseAIService):
                     "4. Maintain clarity while being brief"
                 )
 
-                logger.debug(f"Enhanced prompt: {enhanced_prompt}")
-                logger.debug(f"History: {json.dumps(history, indent=2)}")
-
                 # Generate the response
                 response = await self.model.generate_content_async(
                     contents=history + [{"role": "user", "parts": [enhanced_prompt]}],
@@ -119,8 +114,8 @@ class GeminiService(BaseAIService):
                     }
                 )
                 
-                logger.info("Response generated successfully")
-                logger.debug(f"Response: {response.text}")
+                # Simplified logging - only show output
+                logger.info(f"Output: {response.text[:100]}{'...' if len(response.text) > 100 else ''}")
                 return response.text
             except Exception as e:
                 error_str = str(e)
@@ -140,11 +135,6 @@ class GeminiService(BaseAIService):
                                  conversation_history: List[Dict[str, str]] = None) -> List[Dict[str, str]]:
         """Generate a conversation between multiple AI roles with rate limiting."""
         logger.info(f"Starting conversation about: {topic}")
-        logger.debug(f"Roles: {json.dumps(roles, indent=2)}")
-        logger.debug(f"Max turns: {max_turns}")
-        logger.debug(f"Max tokens: {max_tokens}")
-        if conversation_history:
-            logger.debug(f"Conversation history: {json.dumps(conversation_history, indent=2)}")
 
         # Use provided settings or defaults
         max_turns = max_turns or DEFAULT_CONVERSATION_SETTINGS["max_turns"]
@@ -165,7 +155,7 @@ class GeminiService(BaseAIService):
         
         # If we have a user message at the end of the history, we should only get responses from the roles
         # Otherwise, we'll do a full round of responses
-        if conversation and conversation[-1]["role"] == "user":
+        if conversation and conversation[-1]["role"] == "user" and len(conversation) > 1:
             logger.info("Processing user message with responses from all roles")
             # Only get one response from each role to the user's message
             for role_key, role_config in roles.items():
@@ -196,14 +186,17 @@ class GeminiService(BaseAIService):
             logger.info("Starting new round of responses")
             # Do a full round of responses
             current_turn = 0
+            current_topic = topic  # Start with the original topic
+            
             while current_turn < max_turns:
                 logger.info(f"Starting turn {current_turn + 1}/{max_turns}")
                 for role_key, role_config in roles.items():
                     logger.info(f"Getting response from role: {role_config['name']}")
-                    # Create a prompt that includes the full conversation history
+                    
+                    # Use the current topic (which will be the previous speaker's output)
                     prompt = (
-                        f"As the {role_config['name']}, please provide your perspective on the topic: {topic}, "
-                        f"considering the entire discussion so far. "
+                        f"As the {role_config['name']}, please provide your perspective on: {current_topic}\n\n"
+                        f"Consider the conversation history so far. "
                         f"Your response should be comprehensive yet concise, staying within {max_tokens} tokens. "
                         "Focus on quality and relevance while maintaining brevity."
                     )
@@ -216,13 +209,15 @@ class GeminiService(BaseAIService):
                     conversation.append(self.format_message("model", f"[{role_config['name']}] {response}"))
                     logger.info(f"Added response from {role_config['name']}")
                     
+                    # Update the topic for the next speaker to be this speaker's response
+                    current_topic = response
+                    
                     # Add a small delay between responses
                     await asyncio.sleep(1)
                 
                 current_turn += 1
         
         logger.info("Conversation generation completed")
-        logger.debug(f"Final conversation: {json.dumps(conversation, indent=2)}")
         return conversation
 
     async def get_role_response(self,
@@ -232,9 +227,7 @@ class GeminiService(BaseAIService):
                               max_tokens: Optional[int] = None) -> Dict[str, str]:
         """Get a response from a specific role."""
         logger.info(f"Getting response from role: {role}")
-        logger.debug(f"Topic: {topic}")
-        logger.debug(f"Context: {json.dumps(context, indent=2)}")
-        logger.debug(f"Max tokens: {max_tokens}")
+        logger.info(f"Topic: {topic[:100]}{'...' if len(topic) > 100 else ''}")
 
         # Load roles to get the role configuration
         roles_data = load_roles()

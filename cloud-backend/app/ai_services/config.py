@@ -39,7 +39,7 @@ class AIServiceConfig(BaseModel):
 
     # Default conversation settings
     DEFAULT_CONVERSATION_SETTINGS: Dict[str, Any] = {
-        "max_turns": 1,
+        "max_turns": 3,
         "max_tokens_per_response": 100,
         "temperature": 0.7,
         "active_roles": ["Business Analyst", "Technical Architect"]  # Default active roles
@@ -99,7 +99,7 @@ AI_ROLES = {
 
 # Default conversation settings
 DEFAULT_CONVERSATION_SETTINGS = {
-    "max_turns": 1,
+    "max_turns": 3,
     "max_tokens_per_response": 100,
     "temperature": 0.7,
     "active_roles": ["business", "technical", "customer"]  # Default active roles
