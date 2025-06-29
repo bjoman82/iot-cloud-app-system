@@ -74,7 +74,7 @@ class GeminiService(BaseAIService):
                               max_tokens: Optional[int] = None) -> str:
         """Generate a response using Google's Gemini model with rate limiting."""
         # Simplified logging - only show topic and output
-        logger.info(f"Topic: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        logger.info(f"Topic: {prompt}")
 
         for attempt in range(self.max_retries):
             try:

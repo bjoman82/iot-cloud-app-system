@@ -174,6 +174,10 @@ async def start_conversation(request: ConversationRequest):
         if not active_roles:
             raise HTTPException(status_code=400, detail="No active roles specified")
         
+        # If we have user input, update the topic
+        if request.user_input:
+            request.topic = request.user_input
+        
         # If we have a next speaker specified, only that role should respond
         if request.next_speaker:
             # Find the role by name or key
@@ -199,7 +203,6 @@ async def start_conversation(request: ConversationRequest):
         if request.user_input:
             conversation = request.conversation_history or []
             conversation.append({"role": "user", "content": request.user_input})
-            request.topic = request.user_input
         else:
             conversation = []
         
